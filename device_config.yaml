@@ -1,0 +1,11 @@
+device:
+  - name: psylink
+    properties:
+    - device_uuid: d3396ffa-2747-0e6b-1664-d20b0da87011
+    - service_uuid: 0a3d3fd8-2f1c-46fd-bf46-eaef2fda91e4
+    - sensor_uuid: 0a3d3fd8-2f1c-46fd-bf46-eaef2fda91e5
+    - channel_count_uuid: 0a3d3fd8-2f1c-46fd-bf46-eaef2fda91e6
+    - emg_channels: 8
+    - imu_channels: 6
+    - mac_address: A6:B7:D0:AE:C2:76
+
