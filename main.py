@@ -1,7 +1,6 @@
 import asyncio
 from bleak import BleakClient, BleakError, BleakScanner
-import math
-import time
+import math, time, yaml
 from emgGUI import EMGGUI
 
 import dearpygui.dearpygui as dpg
@@ -116,7 +115,7 @@ class Queue(mpq.Queue):
             self.get()
 
 class EMGGUI():
-    def __init__(self):
+    def __init__(self, device_config):
         multiprocessing.set_start_method('spawn')        
         self.data_queue = Queue()
         self.running = multiprocessing.Value(c_bool, False)
@@ -128,6 +127,16 @@ class EMGGUI():
         self.signal_time = []
         self.sample_rollover_count = 0
         self.start_time = time.time()
+        self.device_config = device_config
+      
+        self.device_name = self.device_config["device"][0]["name"]
+        self.device_uuid = self.device_config["device"][0]['properties'][0]['device_uuid']
+        self.service_uuid = self.device_config["device"][0]['properties'][1]['service_uuid']
+        self.sensor_uuid = self.device_config["device"][0]['properties'][2]['sensor_uuid']
+        self.channel_count_uuid = self.device_config["device"][0]['properties'][3]['channel_count_uuid']
+        self.emg_channels = self.device_config["device"][0]['properties'][4]['emg_channels']
+        self.imu_channels = self.device_config["device"][0]['properties'][5]['imu_channels']
+        self.mac_address = self.device_config["device"][0]['properties'][6]['mac_address']
         
         dpg.create_context()        
 
@@ -135,14 +144,7 @@ class EMGGUI():
         with dpg.font_registry():
             font_regular_12 = dpg.add_font("fonts/Inter-Regular.ttf", 14)
             font_regular_14 = dpg.add_font("fonts/Inter-Regular.ttf", 18)
-            font_regular_16 = dpg.add_font("fonts/Inter-Regular.ttf", 22)
-            font_regular_24 = dpg.add_font("fonts/DroidSansMono.otf", 36)
-            # font_regular_12 = dpg.add_font("fonts/DroidSansMono.otf", 14)
-            # font_regular_14 = dpg.add_font("fonts/DroidSansMono.otf", 18)
-            # font_regular_16 = dpg.add_font("fonts/DroidSansMono.otf", 22)
-            # font_regular_18 = dpg.add_font("fonts/Inter-Regular.ttf", 32)
-            # font_regular_24 = dpg.add_font("fonts/Inter-Regular.ttf", 36)
-            # font_regular_40 = dpg.add_font("fonts/Inter-Regular.ttf", 44)            
+            font_regular_24 = dpg.add_font("fonts/DroidSansMono.otf", 36)         
 
         with dpg.theme() as data_theme:
             with dpg.theme_component(dpg.mvAll):
@@ -172,10 +174,7 @@ class EMGGUI():
 
         with dpg.theme() as center_button_theme:
             with dpg.theme_component(dpg.mvAll):
-
                 dpg.add_theme_style(dpg.mvStyleVar_ButtonTextAlign, 0.5, category=dpg.mvThemeCat_Core)
-
-                # set the colour of all states of a button to the background colour
                 dpg.add_theme_color(dpg.mvThemeCol_Button, (36, 40, 42), category=dpg.mvThemeCat_Core)
                 dpg.add_theme_color(dpg.mvThemeCol_ButtonActive, (36, 40, 42), category=dpg.mvThemeCat_Core)
                 dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, (36, 40, 42), category=dpg.mvThemeCat_Core)
@@ -184,16 +183,13 @@ class EMGGUI():
             dpg.add_text("Psylink EMG", pos=[40, 40])
             dpg.bind_item_font(dpg.last_item(), font_regular_24)
 
-            dpg.add_button(label="Start", width=202, height=40, pos=[35, 300], show=True, tag="start_button",
-                           callback=self.start_collecting_data)
+            dpg.add_button(label="Start", width=202, height=40, pos=[35, 300], show=True, tag="start_button",callback=self.start_collecting_data)
             dpg.bind_item_font(dpg.last_item(), font_regular_14)
             dpg.bind_item_theme(dpg.last_item(), start_button_theme)
 
-            dpg.add_button(label="Stop", width=202, height=40, pos=[35, 300], show=False, tag="stop_button",
-                           callback=self.stop_collecting_data)
+            dpg.add_button(label="Stop", width=202, height=40, pos=[35, 300], show=False, tag="stop_button",callback=self.stop_collecting_data)
             dpg.bind_item_font(dpg.last_item(), font_regular_14)
             dpg.bind_item_theme(dpg.last_item(), stop_button_theme)
-
 
             dpg.add_text("Device UUID", pos=[40, 90])
             dpg.bind_item_font(dpg.last_item(), font_regular_12)
@@ -205,33 +201,65 @@ class EMGGUI():
                 dpg.add_text("Total Channels", pos=[10, 10])
                 dpg.bind_item_theme(dpg.last_item(), center_button_theme)
                 dpg.bind_item_font(dpg.last_item(), font_regular_12)
-                dpg.add_button(label = "0", pos=[100, 10], width=40, tag="total_channels_value", small=True)
+                dpg.add_button(label = (self.emg_channels + self.imu_channels), pos=[100, 12], width=40, tag="total_channels_value", small=True)
                 dpg.bind_item_theme(dpg.last_item(), input_theme)
-                dpg.bind_item_font(dpg.last_item(), font_regular_16)
+                dpg.bind_item_font(dpg.last_item(), font_regular_14)
 
                 dpg.add_text("EMG Channels", pos=[10, 40])
                 dpg.bind_item_theme(dpg.last_item(), center_button_theme)
                 dpg.bind_item_font(dpg.last_item(), font_regular_12)
-                dpg.add_button(label = "0", pos=[100, 40], width=40, tag="emg_channels_value", small=True)
+                dpg.add_button(label = self.emg_channels, pos=[100, 42], width=40, tag="emg_channels_value", small=True)
                 dpg.bind_item_theme(dpg.last_item(), input_theme)
-                dpg.bind_item_font(dpg.last_item(), font_regular_16)
+                dpg.bind_item_font(dpg.last_item(), font_regular_14)
 
                 dpg.add_text("IMU Channels", pos=[10, 70])
                 dpg.bind_item_theme(dpg.last_item(), center_button_theme)
                 dpg.bind_item_font(dpg.last_item(), font_regular_12)
-                dpg.add_button(label = "0", pos=[100, 70], width=40, tag="imu_channels_value", small=True)
+                dpg.add_button(label = self.imu_channels, pos=[100, 72], width=40, tag="imu_channels_value", small=True)
                 dpg.bind_item_theme(dpg.last_item(), input_theme)
-                dpg.bind_item_font(dpg.last_item(), font_regular_16)                        
+                dpg.bind_item_font(dpg.last_item(), font_regular_14)                        
 
-            with dpg.child_window(height=614, width=980, pos=[420, 90]):
+            with dpg.child_window(height=980, width=980, pos=[420, 40]):   #120
                 dpg.add_text("EMG Signal 1", pos=[10, 10])
-                # dpg.bind_item_font(dpg.last_item(), font_regular_12)
                 with dpg.plot(pos=[10, 30], height=100, width=950):
-                    dpg.add_plot_axis(dpg.mvXAxis, tag="x_axis", no_tick_labels=True)
-                    dpg.add_plot_axis(dpg.mvYAxis, tag="y_axis")
-                    # dpg.set_axis_limits("x_axis", 0, 1000)
-                    # dpg.set_axis_limits("y_axis", 0, 200)
-                    dpg.add_line_series([], [], label="signal", parent="y_axis", tag="signal_series")
+                    dpg.add_plot_axis(dpg.mvXAxis, tag="x_axis1", no_tick_labels=True)
+                    dpg.add_plot_axis(dpg.mvYAxis, tag="y_axis1")
+                    dpg.add_line_series([], [], label="signal", parent="y_axis1", tag="signal_series1")
+                dpg.add_text("EMG Signal 2", pos=[10, 130])
+                with dpg.plot(pos=[10, 150], height=100, width=950):
+                    dpg.add_plot_axis(dpg.mvXAxis, tag="x_axis2", no_tick_labels=True)
+                    dpg.add_plot_axis(dpg.mvYAxis, tag="y_axis2")
+                    dpg.add_line_series([], [], label="signal", parent="y_axis2", tag="signal_series2")
+                dpg.add_text("EMG Signal 3", pos=[10, 250]) 
+                with dpg.plot(pos=[10, 270], height=100, width=950):
+                    dpg.add_plot_axis(dpg.mvXAxis, tag="x_axis3", no_tick_labels=True)
+                    dpg.add_plot_axis(dpg.mvYAxis, tag="y_axis3")
+                    dpg.add_line_series([], [], label="signal", parent="y_axis3", tag="signal_series3")
+                dpg.add_text("EMG Signal 4", pos=[10, 370])
+                with dpg.plot(pos=[10, 390], height=100, width=950):
+                    dpg.add_plot_axis(dpg.mvXAxis, tag="x_axis4", no_tick_labels=True)
+                    dpg.add_plot_axis(dpg.mvYAxis, tag="y_axis4")
+                    dpg.add_line_series([], [], label="signal", parent="y_axis4", tag="signal_series4")
+                dpg.add_text("EMG Signal 5", pos=[10, 490])
+                with dpg.plot(pos=[10, 510], height=100, width=950):
+                    dpg.add_plot_axis(dpg.mvXAxis, tag="x_axis5", no_tick_labels=True)
+                    dpg.add_plot_axis(dpg.mvYAxis, tag="y_axis5")
+                    dpg.add_line_series([], [], label="signal", parent="y_axis5", tag="signal_series5")
+                dpg.add_text("EMG Signal 6", pos=[10, 610])
+                with dpg.plot(pos=[10, 630], height=100, width=950):
+                    dpg.add_plot_axis(dpg.mvXAxis, tag="x_axis6", no_tick_labels=True)
+                    dpg.add_plot_axis(dpg.mvYAxis, tag="y_axis6")
+                    dpg.add_line_series([], [], label="signal", parent="y_axis6", tag="signal_series6")
+                dpg.add_text("EMG Signal 7", pos=[10, 730])
+                with dpg.plot(pos=[10, 750], height=100, width=950):
+                    dpg.add_plot_axis(dpg.mvXAxis, tag="x_axis7", no_tick_labels=True)
+                    dpg.add_plot_axis(dpg.mvYAxis, tag="y_axis7")
+                    dpg.add_line_series([], [], label="signal", parent="y_axis7", tag="signal_series7")
+                dpg.add_text("EMG Signal 8", pos=[10, 850])
+                with dpg.plot(pos=[10, 870], height=100, width=950):
+                    dpg.add_plot_axis(dpg.mvXAxis, tag="x_axis8", no_tick_labels=True)
+                    dpg.add_plot_axis(dpg.mvYAxis, tag="y_axis8")
+                    dpg.add_line_series([], [], label="signal", parent="y_axis8", tag="signal_series8")                                                                                                                                                              
                     
 
         dpg.create_viewport(title='EMG', width=1440, height=1064, x_pos=40, y_pos=40)
@@ -289,7 +317,7 @@ class EMGGUI():
                 self.y_axis.append(value)
                 self.y_axis = self.y_axis[-self.window_size:]   
 
-                dpg.set_value('signal_series', [self.x_axis, self.y_axis])
+                dpg.set_value('signal_series1', [self.x_axis, self.y_axis])
                 dpg.fit_axis_data('x_axis')
                 dpg.set_axis_limits("y_axis", -200, 200)                
             
@@ -439,16 +467,22 @@ class BLEDecoder:
 
 
 async def main():
-    emg = EMGGUI()
+    with open("device_config.yaml", "r") as stream:
+        try:
+            device_config = yaml.safe_load(stream)
+        except Exception as e:
+            print(f"Error reading config file: {e}")
+            return
+    emg = EMGGUI(device_config)
     emg.build_gui()
     await emg.run()
 
 
 if __name__ == '__main__':
-    try:
-        asyncio.run(main())
-    except:
-        pass
+    # try:
+    asyncio.run(main())
+    # except:
+    #     pass
 
 
 
