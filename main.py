@@ -1,7 +1,6 @@
 import asyncio
 from bleak import BleakClient, BleakError, BleakScanner
 import math, time, yaml
-from emgGUI import EMGGUI
 
 import dearpygui.dearpygui as dpg
 import multiprocessing
@@ -9,7 +8,7 @@ import multiprocessing.queues as mpq
 from ctypes import c_bool
 import signal
 from collections import deque
-
+import numpy as np
 # BLUETOOTH_ADAPTER = 'hci0'
 # DEFAULT_BLE_ADDRESS = 'A6:B7:D0:AE:C2:76'
 
@@ -23,7 +22,7 @@ REDRAW_SIGNALS_DELAY = 100  # milliseconds
 SEED_TENSORFLOW = SEED_NUMPY = 1337
 DEFAULT_TRAINING_EPOCHS = 25
 DEFAULT_CHANNELS = 1
-IMU_CHANNELS = 6  # For gyroscope and accelerometer
+IMU_CHANNELS = 9  # For gyroscope and accelerometer
 FEATURE_BUFFER_SIZE = 2**20
 FEATURE_WINDOW_SIZE = int(SAMPLE_RATE / 2)  # Enough samples to fit half a second
 LABEL_SEPARATOR = ','
@@ -121,12 +120,11 @@ class EMGGUI():
         self.running = multiprocessing.Value(c_bool, False)
         self.shutdown_event = multiprocessing.Event()
         self.is_paused = False
-        self.window_size = 1000
-        self.x_axis = [0.0] * self.window_size
-        self.y_axis = [0.0] * self.window_size
+        self.window_size = 1000                                      
         self.signal_time = []
         self.sample_rollover_count = 0
         self.start_time = time.time()
+        self.t = 0
         self.device_config = device_config
       
         self.device_name = self.device_config["device"][0]["name"]
@@ -138,6 +136,22 @@ class EMGGUI():
         self.imu_channels = self.device_config["device"][0]['properties'][5]['imu_channels']
         self.mac_address = self.device_config["device"][0]['properties'][6]['mac_address']
         
+        self.emg_x_axis = []
+        self.emg_y_axis = []
+        self.imu_time_axis = [0.0] * self.window_size
+        self.imu_gyro_x = [0.0] * self.window_size
+        self.imu_gyro_y = [0.0] * self.window_size
+        self.imu_gyro_z = [0.0] * self.window_size
+        self.imu_accel_x = [0.0] * self.window_size
+        self.imu_accel_y = [0.0] * self.window_size
+        self.imu_accel_z = [0.0] * self.window_size   
+        self.imu_mag_x = [0.0] * self.window_size
+        self.imu_mag_y = [0.0] * self.window_size
+        self.imu_mag_z = [0.0] * self.window_size             
+        for i in range(self.emg_channels):
+            self.emg_x_axis.append([0.0] * self.window_size)
+            self.emg_y_axis.append([0.0] * self.window_size)
+
         dpg.create_context()        
 
     def build_gui(self):
@@ -183,14 +197,6 @@ class EMGGUI():
             dpg.add_text("Psylink EMG", pos=[40, 40])
             dpg.bind_item_font(dpg.last_item(), font_regular_24)
 
-            dpg.add_button(label="Start", width=202, height=40, pos=[35, 300], show=True, tag="start_button",callback=self.start_collecting_data)
-            dpg.bind_item_font(dpg.last_item(), font_regular_14)
-            dpg.bind_item_theme(dpg.last_item(), start_button_theme)
-
-            dpg.add_button(label="Stop", width=202, height=40, pos=[35, 300], show=False, tag="stop_button",callback=self.stop_collecting_data)
-            dpg.bind_item_font(dpg.last_item(), font_regular_14)
-            dpg.bind_item_theme(dpg.last_item(), stop_button_theme)
-
             dpg.add_text("Device UUID", pos=[40, 90])
             dpg.bind_item_font(dpg.last_item(), font_regular_12)
             dpg.add_input_text(default_value=DEVICE_UUID, pos=[35, 110], width=340, tag="device_uuid")
@@ -217,7 +223,25 @@ class EMGGUI():
                 dpg.bind_item_font(dpg.last_item(), font_regular_12)
                 dpg.add_button(label = self.imu_channels, pos=[100, 72], width=40, tag="imu_channels_value", small=True)
                 dpg.bind_item_theme(dpg.last_item(), input_theme)
-                dpg.bind_item_font(dpg.last_item(), font_regular_14)                        
+                dpg.bind_item_font(dpg.last_item(), font_regular_14)   
+
+            # dpg.add_text("IMU Signals", pos=[35, 380])
+            # with dpg.plot(pos=[35, 400], height=300, width=350):
+            #     dpg.add_plot_axis(dpg.mvXAxis, tag="x_imu", no_tick_labels=True)
+            #     dpg.set_axis_limits("x_imu", 0, 30)
+            #     dpg.add_plot_axis(dpg.mvYAxis, tag="y_imu")
+            #     # dpg.set_axis_limits("y_imu", -10,10)
+            #     dpg.add_line_series([], [], label="signal", parent="y_imu", tag="imu1")
+            #     # dpg.add_bar_series([], [], label="signal", weight=1, parent="y_imu", tag="imu1")
+
+
+            dpg.add_button(label="Start", width=202, height=40, pos=[35, 300], show=True, tag="start_button",callback=self.start_collecting_data)
+            dpg.bind_item_font(dpg.last_item(), font_regular_14)
+            dpg.bind_item_theme(dpg.last_item(), start_button_theme)
+
+            dpg.add_button(label="Stop", width=202, height=40, pos=[35, 300], show=False, tag="stop_button",callback=self.stop_collecting_data)
+            dpg.bind_item_font(dpg.last_item(), font_regular_14)
+            dpg.bind_item_theme(dpg.last_item(), stop_button_theme)
 
             with dpg.child_window(height=980, width=980, pos=[420, 40]):   #120
                 dpg.add_text("EMG Signal 1", pos=[10, 10])
@@ -245,22 +269,43 @@ class EMGGUI():
                     dpg.add_plot_axis(dpg.mvXAxis, tag="x_axis5", no_tick_labels=True)
                     dpg.add_plot_axis(dpg.mvYAxis, tag="y_axis5")
                     dpg.add_line_series([], [], label="signal", parent="y_axis5", tag="signal_series5")
-                dpg.add_text("EMG Signal 6", pos=[10, 610])
+                # dpg.add_text("EMG Signal 6", pos=[10, 610])
+                # with dpg.plot(pos=[10, 630], height=100, width=950):
+                #     dpg.add_plot_axis(dpg.mvXAxis, tag="x_axis6", no_tick_labels=True)
+                #     dpg.add_plot_axis(dpg.mvYAxis, tag="y_axis6")
+                #     dpg.add_line_series([], [], label="signal", parent="y_axis6", tag="signal_series6")
+                dpg.add_text("IMU Signal - Accelerometer", pos=[10, 610])
                 with dpg.plot(pos=[10, 630], height=100, width=950):
                     dpg.add_plot_axis(dpg.mvXAxis, tag="x_axis6", no_tick_labels=True)
                     dpg.add_plot_axis(dpg.mvYAxis, tag="y_axis6")
-                    dpg.add_line_series([], [], label="signal", parent="y_axis6", tag="signal_series6")
-                dpg.add_text("EMG Signal 7", pos=[10, 730])
+                    dpg.add_line_series([], [], label="signal", parent="y_axis6", tag="imu_ax")
+                    dpg.add_line_series([], [], label="signal", parent="y_axis6", tag="imu_ay")
+                    dpg.add_line_series([], [], label="signal", parent="y_axis6", tag="imu_az")
+                # dpg.add_text("EMG Signal 7", pos=[10, 730])
+                # with dpg.plot(pos=[10, 750], height=100, width=950):
+                #     dpg.add_plot_axis(dpg.mvXAxis, tag="x_axis7", no_tick_labels=True)
+                #     dpg.add_plot_axis(dpg.mvYAxis, tag="y_axis7")
+                #     dpg.add_line_series([], [], label="signal", parent="y_axis7", tag="signal_series7")
+                dpg.add_text("IMU Signal - Gyroscope", pos=[10, 730])                    
                 with dpg.plot(pos=[10, 750], height=100, width=950):
                     dpg.add_plot_axis(dpg.mvXAxis, tag="x_axis7", no_tick_labels=True)
                     dpg.add_plot_axis(dpg.mvYAxis, tag="y_axis7")
-                    dpg.add_line_series([], [], label="signal", parent="y_axis7", tag="signal_series7")
-                dpg.add_text("EMG Signal 8", pos=[10, 850])
+                    dpg.add_line_series([], [], label="gx", parent="y_axis7", tag="imu_gx")
+                    dpg.add_line_series([], [], label="gy", parent="y_axis7", tag="imu_gy")
+                    dpg.add_line_series([], [], label="gz", parent="y_axis7", tag="imu_gz")
+                # dpg.add_text("EMG Signal 8", pos=[10, 850])
+                # with dpg.plot(pos=[10, 870], height=100, width=950):
+                #     dpg.add_plot_axis(dpg.mvXAxis, tag="x_axis8", no_tick_labels=True)
+                #     dpg.add_plot_axis(dpg.mvYAxis, tag="y_axis8")
+                #     dpg.add_line_series([], [], label="signal", parent="y_axis8", tag="signal_series8")
+                dpg.add_text("IMU Signal - Magnetometer", pos=[10, 850])
                 with dpg.plot(pos=[10, 870], height=100, width=950):
                     dpg.add_plot_axis(dpg.mvXAxis, tag="x_axis8", no_tick_labels=True)
                     dpg.add_plot_axis(dpg.mvYAxis, tag="y_axis8")
-                    dpg.add_line_series([], [], label="signal", parent="y_axis8", tag="signal_series8")                                                                                                                                                              
-                    
+                    dpg.add_line_series([], [], label="signal", parent="y_axis8", tag="imu_mx")
+                    dpg.add_line_series([], [], label="signal", parent="y_axis8", tag="imu_my")
+                    dpg.add_line_series([], [], label="signal", parent="y_axis8", tag="imu_mz")
+                                        
 
         dpg.create_viewport(title='EMG', width=1440, height=1064, x_pos=40, y_pos=40)
         dpg.bind_item_theme(window, data_theme)
@@ -270,7 +315,6 @@ class EMGGUI():
         dpg.set_primary_window("main_window", True)
 
     async def run(self):
-        # self.setup_signal_handler()
         asyncio.create_task(self.collect_emg_data(DEVICE_UUID))           
         while dpg.is_dearpygui_running():
             await asyncio.sleep(0.01)
@@ -297,29 +341,120 @@ class EMGGUI():
         dpg.configure_item("start_button", show=True)
         dpg.configure_item("stop_button", show=False)
 
+                # output_items = [0.0] * 14
+                # transposed = np.transpose(samples)
+                # print(transposed / 256)
+                # count = len(samples)
+                # for channel_id in range(SIGNAL_COUNT):
+                #     channel = output_items[channel_id]
+                #     channel[count:count+len(samples)] = transposed[channel_id] / 256
+                # count += len(samples)
+                # print(len(samples))
+
+# the raw EMG data is an integer between 0 and 4095, and I map the range 1040-3080 to 1-255
+# so it's downscaled, and 127 is something like a zero-value
+# I cut it off just because the signals typically don't reach those values, and I'm trying to maximize the resolution with minimal data loss
+
+# emg signals
+# currentChar = map(samples[sendBuffer][channel][sample], 1040, 3080, 1, 255);
+# bleString[pos++] = max(1, min(currentChar, 255));
+# long map(long x, long in_min, long in_max, long out_min, long out_max) {
+#   return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
+# }
+
+# imu signals
+# IMU.readGyroscope(x, y, z);
+# bleString[pos++] = min(255, max(1, x+127));
+# bleString[pos++] = min(255, max(1, y+127));
+# bleString[pos++] = min(255, max(1, z+127))
+# IMU.readAcceleration(x, y, z);
+# bleString[pos++] = min(255, max(1, 128*x+127));
+# bleString[pos++] = min(255, max(1, 128*y+127));
+# bleString[pos++] = min(255, max(1, 128*z+127));;
+
     def update_plots(self):
         if self.running.value == True and self.data_queue.qsize() > 0:
             incoming_data = self.data_queue.get()
-            channels = incoming_data['channels']
+            # channels = incoming_data['channels']
             sample_count = incoming_data['sample_count']
 
-            for i in range(sample_count):
-                t = time.time() - self.start_time                  
-                # sample_time = incoming_data['time']                
-                samples = incoming_data['samples'][i]
-                # emg_samples = samples[0:9]
-                # imu_samples = samples[9:]
+            self.t = incoming_data['time'] - self.start_time 
 
-                value = float(samples[0])
+            for current_sample in range(sample_count):              
+                samples = incoming_data['samples'][current_sample]
+                emg_samples = samples[0:8]
+                imu_samples = samples[8:]
 
-                self.x_axis.append(t)
-                self.x_axis = self.x_axis[-self.window_size:]                
-                self.y_axis.append(value)
-                self.y_axis = self.y_axis[-self.window_size:]   
+                for index,value in enumerate(emg_samples):
+                    emg_data_point = float(value)
+                    if index >= 0 and index <= (self.emg_channels - 4):
+                        self.emg_x_axis[index].append(self.t)
+                        self.emg_x_axis[index] = self.emg_x_axis[index][-self.window_size:]                
+                        self.emg_y_axis[index].append(emg_data_point)
+                        self.emg_y_axis[index] = self.emg_y_axis[index][-self.window_size:]   
+                        plot_tag = 'signal_series' + str(index + 1)
+                        dpg.set_value(plot_tag, [self.emg_x_axis[index], self.emg_y_axis[index]])
+                        x_axis_tag = 'x_axis' + str(index + 1)
+                        dpg.fit_axis_data(x_axis_tag)
+                        y_axis_tag = 'y_axis' + str(index + 1)
+                        dpg.set_axis_limits(y_axis_tag, -200, 200)    
 
-                dpg.set_value('signal_series1', [self.x_axis, self.y_axis])
-                dpg.fit_axis_data('x_axis')
-                dpg.set_axis_limits("y_axis", -200, 200)                
+                self.imu_time_axis.append(self.t)
+                self.imu_time_axis = self.imu_time_axis[-self.window_size:]  
+
+                # accelerometer
+                accel_data = [ (x - 127)/128 for x in imu_samples[3:6]]
+                accel_x = accel_data[0]
+                accel_y = accel_data[1]
+                accel_z = accel_data[2]
+                self.imu_accel_x.append(accel_x)
+                self.imu_accel_x = self.imu_accel_x[-self.window_size:] 
+                self.imu_accel_y.append(accel_y)
+                self.imu_accel_y = self.imu_accel_y[-self.window_size:] 
+                self.imu_accel_z.append(accel_z)
+                self.imu_accel_z = self.imu_accel_z[-self.window_size:]                                 
+
+                dpg.set_value("imu_ax", [self.imu_time_axis, self.imu_accel_x])
+                dpg.set_value("imu_ay", [self.imu_time_axis, self.imu_accel_y])
+                dpg.set_value("imu_az", [self.imu_time_axis, self.imu_accel_z])
+                dpg.fit_axis_data("x_axis6")
+                dpg.set_axis_limits("y_axis6", -1,1.2)   
+                
+                # gyroscope
+                gyro_data = [ (x - 127) for x in imu_samples[0:3]]
+                gyro_x = gyro_data[0]
+                gyro_y = gyro_data[1]
+                gyro_z = gyro_data[2]
+                self.imu_gyro_x.append(gyro_x)
+                self.imu_gyro_x = self.imu_gyro_x[-self.window_size:] 
+                self.imu_gyro_y.append(gyro_y)
+                self.imu_gyro_y = self.imu_gyro_y[-self.window_size:] 
+                self.imu_gyro_z.append(gyro_z)
+                self.imu_gyro_z = self.imu_gyro_z[-self.window_size:]   
+
+                dpg.set_value("imu_gx", [self.imu_time_axis, self.imu_gyro_x])
+                dpg.set_value("imu_gy", [self.imu_time_axis, self.imu_gyro_y])
+                dpg.set_value("imu_gz", [self.imu_time_axis, self.imu_gyro_z])
+                dpg.fit_axis_data("x_axis7")
+                dpg.set_axis_limits("y_axis7", -50,50)                
+                # dpg.set_axis_limits_auto("y_axis7")
+
+                # print(imu_samples)
+                mag_data = [ (x - 127) for x in imu_samples[6:9]]
+                mag_x = mag_data[0]
+                mag_y = mag_data[1]
+                mag_z = mag_data[2]
+                self.imu_mag_x.append(mag_x)
+                self.imu_mag_x = self.imu_mag_x[-self.window_size:] 
+                self.imu_mag_y.append(mag_y)
+                self.imu_mag_y = self.imu_mag_y[-self.window_size:] 
+                self.imu_mag_z.append(mag_z)
+                self.imu_mag_z = self.imu_mag_z[-self.window_size:]
+                dpg.set_value("imu_mx", [self.imu_time_axis, self.imu_mag_x])
+                dpg.set_value("imu_my", [self.imu_time_axis, self.imu_mag_y])
+                dpg.set_value("imu_mz", [self.imu_time_axis, self.imu_mag_z])
+                dpg.fit_axis_data("x_axis8")
+                dpg.set_axis_limits("y_axis8", -100,100)                       
             
         
     async def collect_emg_data(self, ble_address):
@@ -344,7 +479,7 @@ class EMGGUI():
                     read = await client.read_gatt_char(SENSOR_UUID)
                     decoded = decoder.decode_packet(read)
                     if decoded['is_duplicate']:
-                        continue # we don't want dupelicate data
+                        continue # we don't want duplicate data
                     self.data_queue.put(decoded)
                     # print(decoded)
                     fps += 1
