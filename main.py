@@ -43,7 +43,7 @@ class EMGGUI():
         self.imu_mag_x = [0.0] * self.window_size
         self.imu_mag_y = [0.0] * self.window_size
         self.imu_mag_z = [0.0] * self.window_size             
-        for i in range(self.emg_channels):
+        for _ in range(self.emg_channels):
             self.emg_x_axis.append([0.0] * self.window_size)
             self.emg_y_axis.append([0.0] * self.window_size)
         self.magnetometer_available = False
@@ -260,19 +260,13 @@ class EMGGUI():
         current_queue_size = self.data_queue.qsize()
         if self.running == True and current_queue_size > 0:
             incoming_data = await self.data_queue.get()
-            # channels = incoming_data['channels']
-
             sample_count = incoming_data['sample_count']
-
             self.t = incoming_data['time'] - self.start_time 
 
             for current_sample in range(sample_count):              
                 samples = incoming_data['samples'][current_sample]
                 emg_samples = samples[0:8]
                 imu_samples = samples[8:]                
-                # if len(samples) == 9:
-                #     self.magnetometer_available == True
-
 
                 for index,value in enumerate(emg_samples):
                     emg_data_point = float(value)
@@ -290,24 +284,6 @@ class EMGGUI():
 
                 self.imu_time_axis.append(self.t)
                 self.imu_time_axis = self.imu_time_axis[-self.window_size:]  
-
-                # accelerometer
-                accel_data = [ (x - 127)/128 for x in imu_samples[3:6]]
-                accel_x = accel_data[0]
-                accel_y = accel_data[1]
-                accel_z = accel_data[2]
-                self.imu_accel_x.append(accel_x)
-                self.imu_accel_x = self.imu_accel_x[-self.window_size:] 
-                self.imu_accel_y.append(accel_y)
-                self.imu_accel_y = self.imu_accel_y[-self.window_size:] 
-                self.imu_accel_z.append(accel_z)
-                self.imu_accel_z = self.imu_accel_z[-self.window_size:]                                 
-
-                dpg.set_value("imu_ax", [self.imu_time_axis, self.imu_accel_x])
-                dpg.set_value("imu_ay", [self.imu_time_axis, self.imu_accel_y])
-                dpg.set_value("imu_az", [self.imu_time_axis, self.imu_accel_z])
-                dpg.fit_axis_data("x_axis6")
-                dpg.set_axis_limits("y_axis6", -1,1.2)   
                 
                 # gyroscope
                 gyro_data = [ (x - 127) for x in imu_samples[0:3]]
@@ -328,6 +304,25 @@ class EMGGUI():
                 dpg.set_axis_limits("y_axis7", -50,50)                
                 # dpg.set_axis_limits_auto("y_axis7")
 
+                # accelerometer
+                accel_data = [ (x - 127)/128 for x in imu_samples[3:6]]
+                accel_x = accel_data[0]
+                accel_y = accel_data[1]
+                accel_z = accel_data[2]
+                self.imu_accel_x.append(accel_x)
+                self.imu_accel_x = self.imu_accel_x[-self.window_size:] 
+                self.imu_accel_y.append(accel_y)
+                self.imu_accel_y = self.imu_accel_y[-self.window_size:] 
+                self.imu_accel_z.append(accel_z)
+                self.imu_accel_z = self.imu_accel_z[-self.window_size:]                                 
+
+                dpg.set_value("imu_ax", [self.imu_time_axis, self.imu_accel_x])
+                dpg.set_value("imu_ay", [self.imu_time_axis, self.imu_accel_y])
+                dpg.set_value("imu_az", [self.imu_time_axis, self.imu_accel_z])
+                dpg.fit_axis_data("x_axis6")
+                dpg.set_axis_limits("y_axis6", -1,1.2)   
+
+                # magnetometer
                 if self.magnetometer_available:
                     mag_data = [ (x - 127) for x in imu_samples[6:9]]
                     mag_x = mag_data[0]
@@ -353,7 +348,6 @@ class EMGGUI():
         decoder = BLEDecoder()
         device = await BleakScanner.find_device_by_address(ble_address, timeout=20.0)
         if not device:
-            # raise BleakError(f"A device with address {ble_address} could not be found.")
             print(f"A device with address {ble_address} could not be found.")
             self.teardown()
             return
@@ -415,7 +409,6 @@ class EMGGUI():
 
 class BLEDecoder:
     def __init__(self, sample_value_offset=SAMPLE_VALUE_OFFSET):
-        # self.channels = None
         self.emg_channels = 8 # default
         self.imu_channels = 6 # default
         self.total_channels = 0
@@ -433,12 +426,7 @@ class BLEDecoder:
             'samples': np.array([...], dtype=np.int),
         }
         """
-        # if self.emg_channels is None:
-        #     raise Exception("Please read and decode the characteristic for the"
-        #         " channel count before running this method. Alternatively, set"
-        #         " the channel count manually with e.g. `decoder.channels = 1`")
 
-        # channels = self.channels
         tick = bytes_[0]
         delays = bytes_[1]
         min_sampling_delay = self._decompress_delay((delays & 0xf0) >> 4)
@@ -465,7 +453,7 @@ class BLEDecoder:
         samples = []
         for i in range(0,sample_count):
             samples.append([])
-            for j in range(0,(self.emg_channels + self.imu_channels)):
+            for _ in range(0,(self.emg_channels + self.imu_channels)):
                 samples[i].append(0)
 
         channel = 0
