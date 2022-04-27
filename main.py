@@ -3,41 +3,10 @@ from bleak import BleakClient, BleakScanner
 import math, time, yaml
 import dearpygui.dearpygui as dpg
 
-# BLUETOOTH_ADAPTER = 'hci0'
-# DEFAULT_BLE_ADDRESS = 'A6:B7:D0:AE:C2:76'
-
-SAMPLE_RATE = 500  # Hz
-SIGNAL_BUFFER_SIZE = 2000
-ASSUMED_BLE_LATENCY = 0.1  # seconds
-RECORD_EVERY_N_SAMPLES = 1
-REDRAW_SIGNALS_DELAY = 100  # milliseconds
-
-# AI Constants
-SEED_TENSORFLOW = SEED_NUMPY = 1337
-DEFAULT_TRAINING_EPOCHS = 25
-DEFAULT_CHANNELS = 1
-IMU_CHANNELS = 9  # For gyroscope and accelerometer
-FEATURE_BUFFER_SIZE = 2**20
-FEATURE_WINDOW_SIZE = int(SAMPLE_RATE / 2)  # Enough samples to fit half a second
-LABEL_SEPARATOR = ','
-BATCH_SIZE = 64
-TRAIN_SPLIT = 0.8
-
 SAMPLE_VALUE_OFFSET = -127
 # Keep these in sync with arduino code.
 DELAY_PARAM_A = -11.3384217
 DELAY_PARAM_B = 1.93093431
-
-
-
-DEVICE_UUID = 'D3396FFA-2747-0E6B-1664-D20B0DA87011'
-SERVICE_UUID = '0a3d3fd8-2f1c-46fd-bf46-eaef2fda91e4'
-SENSOR_UUID = '0a3d3fd8-2f1c-46fd-bf46-eaef2fda91e5'
-EMG_CHANNEL_COUNT_UUID = '0a3d3fd8-2f1c-46fd-bf46-eaef2fda91e6'
-IMU_CHANNEL_COUNT_UUID = '0a3d3fd8-2f1c-46fd-bf46-eaef2fda91e7'
-
-EMG_CHANNELS = 8
-SIGNAL_COUNT = EMG_CHANNELS + IMU_CHANNELS
 
 
 class EMGGUI():
@@ -57,10 +26,11 @@ class EMGGUI():
         self.device_uuid = self.device_config["device"][0]['properties'][0]['device_uuid']
         self.service_uuid = self.device_config["device"][0]['properties'][1]['service_uuid']
         self.sensor_uuid = self.device_config["device"][0]['properties'][2]['sensor_uuid']
-        self.channel_count_uuid = self.device_config["device"][0]['properties'][3]['channel_count_uuid']
-        self.emg_channels = self.device_config["device"][0]['properties'][4]['emg_channels']
-        self.imu_channels = self.device_config["device"][0]['properties'][5]['imu_channels']
-        self.mac_address = self.device_config["device"][0]['properties'][6]['mac_address']
+        self.emg_channel_count_uuid = self.device_config["device"][0]['properties'][3]['emg_channel_count_uuid']
+        self.imu_channel_count_uuid = self.device_config["device"][0]['properties'][4]['imu_channel_count_uuid']
+        self.emg_channels = self.device_config["device"][0]['properties'][5]['emg_channels']
+        self.imu_channels = self.device_config["device"][0]['properties'][6]['imu_channels']
+        self.mac_address = self.device_config["device"][0]['properties'][7]['mac_address']
         
         self.emg_x_axis = []
         self.emg_y_axis = []
@@ -126,7 +96,7 @@ class EMGGUI():
 
             dpg.add_text("Device UUID", pos=[40, 90])
             dpg.bind_item_font(dpg.last_item(), font_regular_12)
-            dpg.add_input_text(default_value=DEVICE_UUID, pos=[35, 110], width=340, tag="device_uuid")
+            dpg.add_input_text(default_value=self.device_uuid, pos=[35, 110], width=340, tag="device_uuid")
             dpg.bind_item_font("device_uuid", font_regular_14)
             dpg.bind_item_theme(dpg.last_item(), input_theme)
 
@@ -242,7 +212,7 @@ class EMGGUI():
         dpg.set_primary_window("main_window", True)
 
     async def run(self):
-        asyncio.create_task(self.collect_emg_data(DEVICE_UUID))           
+        asyncio.create_task(self.collect_emg_data(self.device_uuid))           
         while dpg.is_dearpygui_running():
             await asyncio.sleep(0.001)
             await self.update_plots()
@@ -391,10 +361,10 @@ class EMGGUI():
 
         try:
             async with BleakClient(device) as client:
-                read = await client.read_gatt_char(EMG_CHANNEL_COUNT_UUID)
+                read = await client.read_gatt_char(self.emg_channel_count_uuid)
                 emg_channel_count = decoder.decode_emg_channel_count(read)
                 try:
-                    read = await client.read_gatt_char(IMU_CHANNEL_COUNT_UUID)
+                    read = await client.read_gatt_char(self.imu_channel_count_uuid)
                     imu_channel_count = decoder.decode_imu_channel_count(read)
                 except: # if imu channel count characteristic does not exist, assume count of 6
                     imu_channel_count = 6
@@ -412,7 +382,7 @@ class EMGGUI():
                 dpg.configure_item("total_channels_value", label=int(emg_channel_count + imu_channel_count))
 
                 while not self.shutdown_event.is_set():
-                    read = await client.read_gatt_char(SENSOR_UUID)
+                    read = await client.read_gatt_char(self.sensor_uuid)
                     decoded = decoder.decode_packet(read)                 
                     if decoded['is_duplicate']:
                         continue # we don't want duplicate data
