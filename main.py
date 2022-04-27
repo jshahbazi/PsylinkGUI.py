@@ -447,8 +447,8 @@ class EMGGUI():
 class BLEDecoder:
     def __init__(self, sample_value_offset=SAMPLE_VALUE_OFFSET):
         # self.channels = None
-        self.emg_channels = 0
-        self.imu_channels = 0
+        self.emg_channels = 8 # default
+        self.imu_channels = 6 # default
         self.total_channels = 0
         self.sample_value_offset = sample_value_offset
         self.last_tick = None        
