@@ -151,6 +151,7 @@ class EMGGUI():
         for i in range(self.emg_channels):
             self.emg_x_axis.append([0.0] * self.window_size)
             self.emg_y_axis.append([0.0] * self.window_size)
+        self.magnetometer_available = False
 
         dpg.create_context()        
 
@@ -383,7 +384,10 @@ class EMGGUI():
             for current_sample in range(sample_count):              
                 samples = incoming_data['samples'][current_sample]
                 emg_samples = samples[0:8]
-                imu_samples = samples[8:]
+                imu_samples = samples[8:]                
+                # if len(samples) == 9:
+                #     self.magnetometer_available == True
+
 
                 for index,value in enumerate(emg_samples):
                     emg_data_point = float(value)
@@ -439,22 +443,22 @@ class EMGGUI():
                 dpg.set_axis_limits("y_axis7", -50,50)                
                 # dpg.set_axis_limits_auto("y_axis7")
 
-                # print(imu_samples)
-                mag_data = [ (x - 127) for x in imu_samples[6:9]]
-                mag_x = mag_data[0]
-                mag_y = mag_data[1]
-                mag_z = mag_data[2]
-                self.imu_mag_x.append(mag_x)
-                self.imu_mag_x = self.imu_mag_x[-self.window_size:] 
-                self.imu_mag_y.append(mag_y)
-                self.imu_mag_y = self.imu_mag_y[-self.window_size:] 
-                self.imu_mag_z.append(mag_z)
-                self.imu_mag_z = self.imu_mag_z[-self.window_size:]
-                dpg.set_value("imu_mx", [self.imu_time_axis, self.imu_mag_x])
-                dpg.set_value("imu_my", [self.imu_time_axis, self.imu_mag_y])
-                dpg.set_value("imu_mz", [self.imu_time_axis, self.imu_mag_z])
-                dpg.fit_axis_data("x_axis8")
-                dpg.set_axis_limits("y_axis8", -100,100)                       
+                if self.magnetometer_available:
+                    mag_data = [ (x - 127) for x in imu_samples[6:9]]
+                    mag_x = mag_data[0]
+                    mag_y = mag_data[1]
+                    mag_z = mag_data[2]
+                    self.imu_mag_x.append(mag_x)
+                    self.imu_mag_x = self.imu_mag_x[-self.window_size:] 
+                    self.imu_mag_y.append(mag_y)
+                    self.imu_mag_y = self.imu_mag_y[-self.window_size:] 
+                    self.imu_mag_z.append(mag_z)
+                    self.imu_mag_z = self.imu_mag_z[-self.window_size:]
+                    dpg.set_value("imu_mx", [self.imu_time_axis, self.imu_mag_x])
+                    dpg.set_value("imu_my", [self.imu_time_axis, self.imu_mag_y])
+                    dpg.set_value("imu_mz", [self.imu_time_axis, self.imu_mag_z])
+                    dpg.fit_axis_data("x_axis8")
+                    dpg.set_axis_limits("y_axis8", -100,100)                       
             
         
     async def collect_emg_data(self, ble_address):
@@ -473,6 +477,10 @@ class EMGGUI():
             async with BleakClient(device) as client:
                 read = await client.read_gatt_char(CHANNEL_COUNT_UUID)
                 channel_count = decoder.decode_channel_count(read)
+                if channel_count == 17:
+                    self.magnetometer_available = True
+                    self.imu_channels = 9
+                    dpg.configure_item("imu_channels_value", label=int(self.imu_channels))
                 dpg.configure_item("total_channels_value", label=int(channel_count))
 
                 while not self.shutdown_event.is_set():
