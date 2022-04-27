@@ -33,7 +33,8 @@ DELAY_PARAM_B = 1.93093431
 DEVICE_UUID = 'D3396FFA-2747-0E6B-1664-D20B0DA87011'
 SERVICE_UUID = '0a3d3fd8-2f1c-46fd-bf46-eaef2fda91e4'
 SENSOR_UUID = '0a3d3fd8-2f1c-46fd-bf46-eaef2fda91e5'
-CHANNEL_COUNT_UUID = '0a3d3fd8-2f1c-46fd-bf46-eaef2fda91e6'
+EMG_CHANNEL_COUNT_UUID = '0a3d3fd8-2f1c-46fd-bf46-eaef2fda91e6'
+IMU_CHANNEL_COUNT_UUID = '0a3d3fd8-2f1c-46fd-bf46-eaef2fda91e7'
 
 EMG_CHANNELS = 8
 SIGNAL_COUNT = EMG_CHANNELS + IMU_CHANNELS
@@ -291,6 +292,7 @@ class EMGGUI():
         if self.running == True and current_queue_size > 0:
             incoming_data = await self.data_queue.get()
             # channels = incoming_data['channels']
+
             sample_count = incoming_data['sample_count']
 
             self.t = incoming_data['time'] - self.start_time 
@@ -389,21 +391,28 @@ class EMGGUI():
 
         try:
             async with BleakClient(device) as client:
-                read = await client.read_gatt_char(CHANNEL_COUNT_UUID)
-                channel_count = decoder.decode_channel_count(read)
-                if channel_count == 17:
+                read = await client.read_gatt_char(EMG_CHANNEL_COUNT_UUID)
+                emg_channel_count = decoder.decode_emg_channel_count(read)
+                read = await client.read_gatt_char(IMU_CHANNEL_COUNT_UUID)
+                imu_channel_count = decoder.decode_imu_channel_count(read)
+                if imu_channel_count == 9:
                     self.magnetometer_available = True
                     self.imu_channels = 9
                     dpg.configure_item("imu_channels_value", label=int(self.imu_channels))
-                dpg.configure_item("total_channels_value", label=int(channel_count))
+                else:
+                    self.magnetometer_available = False
+                    self.imu_channels = 6
+                    dpg.configure_item("imu_channels_value", label=int(self.imu_channels))   
+              
+                dpg.configure_item("total_channels_value", label=int(emg_channel_count + imu_channel_count))
 
                 while not self.shutdown_event.is_set():
                     read = await client.read_gatt_char(SENSOR_UUID)
-                    decoded = decoder.decode_packet(read)
+                    decoded = decoder.decode_packet(read)                 
                     if decoded['is_duplicate']:
                         continue # we don't want duplicate data
                     await self.data_queue.put(decoded)
-                    # print(decoded)
+
                     fps += 1
                     bps += len(read)
                     if time.time() >= nextfps:
@@ -432,8 +441,10 @@ class EMGGUI():
 
 class BLEDecoder:
     def __init__(self, sample_value_offset=SAMPLE_VALUE_OFFSET):
-        self.channels = None
+        # self.channels = None
         self.emg_channels = 0
+        self.imu_channels = 0
+        self.total_channels = 0
         self.sample_value_offset = sample_value_offset
         self.last_tick = None        
 
@@ -448,12 +459,12 @@ class BLEDecoder:
             'samples': np.array([...], dtype=np.int),
         }
         """
-        if self.channels is None:
-            raise Exception("Please read and decode the characteristic for the"
-                " channel count before running this method. Alternatively, set"
-                " the channel count manually with e.g. `decoder.channels = 1`")
+        # if self.emg_channels is None:
+        #     raise Exception("Please read and decode the characteristic for the"
+        #         " channel count before running this method. Alternatively, set"
+        #         " the channel count manually with e.g. `decoder.channels = 1`")
 
-        channels = self.channels
+        # channels = self.channels
         tick = bytes_[0]
         delays = bytes_[1]
         min_sampling_delay = self._decompress_delay((delays & 0xf0) >> 4)
@@ -468,11 +479,11 @@ class BLEDecoder:
             lost_packets = min(max(0, tick - self.last_tick - 1), tick + 255 - self.last_tick - 1)
             if lost_packets:
                 print(f"Lost packets: {lost_packets}")
+        
+        gyroscope_accelerometer = list(bytes_[2:2+self.imu_channels])
+        assert len(gyroscope_accelerometer) == self.imu_channels    
 
-        gyroscope_accelerometer = list(bytes_[2:2+IMU_CHANNELS])
-        assert len(gyroscope_accelerometer) == IMU_CHANNELS    
-
-        sample_values = bytes_[1:]
+        sample_values = bytes_[1:] #210
         if len(sample_values) % self.emg_channels != 0:
             # ensure it's divisible by number of channels:
             sample_values[-(len(sample_values) % self.emg_channels):] = []
@@ -480,7 +491,7 @@ class BLEDecoder:
         samples = []
         for i in range(0,sample_count):
             samples.append([])
-            for j in range(0,self.channels):
+            for j in range(0,(self.emg_channels + self.imu_channels)):
                 samples[i].append(0)
 
         channel = 0
@@ -494,12 +505,12 @@ class BLEDecoder:
 
         # Filling in gyroscope/accelerometer channels
         for sample_id, channels in enumerate(samples):
-            assert len(channels) == self.emg_channels + IMU_CHANNELS
+            assert len(channels) == self.emg_channels + self.imu_channels
             channels[self.emg_channels:] = gyroscope_accelerometer
 
         self.last_tick = tick
         return {
-            'channels': self.channels,
+            'channels': self.emg_channels,
             'tick': tick,
             'min_sampling_delay': min_sampling_delay,
             'max_sampling_delay': max_sampling_delay,
@@ -515,11 +526,17 @@ class BLEDecoder:
         # this reverses COMPRESS_DELAY in Arduino code
         return math.exp((delay - DELAY_PARAM_A) / DELAY_PARAM_B)
 
-    def decode_channel_count(self, byte):
+    def decode_emg_channel_count(self, byte):
         self.emg_channels = int.from_bytes(byte, 'little')
-        self.channels = self.emg_channels + IMU_CHANNELS
-        print("Channels = %d" % self.channels)
-        return self.channels
+        print("EMG Channels = %d" % self.emg_channels)
+        self.total_channels = self.emg_channels + self.imu_channels
+        return self.emg_channels
+
+    def decode_imu_channel_count(self, byte):
+        self.imu_channels = int.from_bytes(byte, 'little')
+        print("IMU Channels = %d" % self.imu_channels)
+        self.total_channels = self.emg_channels + self.imu_channels
+        return self.imu_channels        
 
 
 async def main():

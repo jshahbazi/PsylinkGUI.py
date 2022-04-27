@@ -19,6 +19,7 @@
 #define BLE_CONNECTION_INTERVAL_MAX 8 // in steps of 1.25ms
 #define JUMPER_PIN_TO_DISABLE_IMU D2
 #define CHANNELS 8
+#define IMU_CHANNELS 9
 #define BUFFERS 2 // multiple buffers help with concurrency issues, if needed
 #define METADATA_BYTES 11
 // Metadata format:
@@ -49,6 +50,7 @@ BLEDevice connectedDevice;
 BLEService sensorService("0a3d3fd8-2f1c-46fd-bf46-eaef2fda91e4");
 BLEStringCharacteristic sensorCharacteristic("0a3d3fd8-2f1c-46fd-bf46-eaef2fda91e5", BLERead, BLE_CHARACTERISTIC_SIZE);
 BLEIntCharacteristic channelCountCharacteristic("0a3d3fd8-2f1c-46fd-bf46-eaef2fda91e6", BLERead);
+BLEIntCharacteristic imuChannelCountCharacteristic("0a3d3fd8-2f1c-46fd-bf46-eaef2fda91e7", BLERead);
 
 volatile bool doSampling = true;
 volatile int sendBuffer = NO_BUFFER;
@@ -97,12 +99,14 @@ void setup() {
   BLE.setAdvertisedService(sensorService);
   sensorService.addCharacteristic(sensorCharacteristic);
   sensorService.addCharacteristic(channelCountCharacteristic);
+  sensorService.addCharacteristic(imuChannelCountCharacteristic);
   BLE.addService(sensorService);
   BLE.setEventHandler(BLEConnected, bleConnectHandler);
   BLE.setEventHandler(BLEDisconnected, bleDisconnectHandler);
   //sensorCharacteristic.setEventHandler(BLERead, sensorCharacteristicRead);
   sensorCharacteristic.writeValue("0");
   channelCountCharacteristic.writeValue(CHANNELS);
+  imuChannelCountCharacteristic.writeValue(IMU_CHANNELS);
   BLE.setConnectionInterval(BLE_CONNECTION_INTERVAL_MIN, BLE_CONNECTION_INTERVAL_MAX);
   BLE.advertise();
   for (int i = 0; i < BLE_CHARACTERISTIC_SIZE; i++) { bleString[i] = i+1; }
