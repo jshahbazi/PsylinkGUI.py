@@ -267,16 +267,6 @@ class EMGGUI():
         dpg.configure_item("start_button", show=True)
         dpg.configure_item("stop_button", show=False)
 
-                # output_items = [0.0] * 14
-                # transposed = np.transpose(samples)
-                # print(transposed / 256)
-                # count = len(samples)
-                # for channel_id in range(SIGNAL_COUNT):
-                #     channel = output_items[channel_id]
-                #     channel[count:count+len(samples)] = transposed[channel_id] / 256
-                # count += len(samples)
-                # print(len(samples))
-
 # the raw EMG data is an integer between 0 and 4095, and I map the range 1040-3080 to 1-255
 # so it's downscaled, and 127 is something like a zero-value
 # I cut it off just because the signals typically don't reach those values, and I'm trying to maximize the resolution with minimal data loss
@@ -489,7 +479,6 @@ class BLEDecoder:
             # ensure it's divisible by number of channels:
             sample_values[-(len(sample_values) % self.emg_channels):] = []
         sample_count = math.floor(len(sample_values) / self.emg_channels)
-        # samples = np.zeros((sample_count, self.channels), dtype=np.int64)
         samples = []
         for i in range(0,sample_count):
             samples.append([])
@@ -548,31 +537,4 @@ async def main():
 
 
 if __name__ == '__main__':
-    # try:
     asyncio.run(main())
-    # except:
-    #     pass
-
-
-
-
-                # dpg.add_text("Total Channels", pos=[40, 160])
-                # dpg.bind_item_theme(dpg.last_item(), center_button_theme)
-                # dpg.bind_item_font(dpg.last_item(), font_regular_12)
-                # dpg.add_button(label = "0", pos=[130, 160], width=40, tag="total_channels_value", small=True)
-                # dpg.bind_item_theme(dpg.last_item(), input_theme)
-                # dpg.bind_item_font(dpg.last_item(), font_regular_16)
-
-                # dpg.add_text("EMG Channels", pos=[40, 190])
-                # dpg.bind_item_theme(dpg.last_item(), center_button_theme)
-                # dpg.bind_item_font(dpg.last_item(), font_regular_12)
-                # dpg.add_button(label = "0", pos=[130, 190], width=40, tag="emg_channels_value", small=True)
-                # dpg.bind_item_theme(dpg.last_item(), input_theme)
-                # dpg.bind_item_font(dpg.last_item(), font_regular_16)
-
-                # dpg.add_text("IMU Channels", pos=[40, 220])
-                # dpg.bind_item_theme(dpg.last_item(), center_button_theme)
-                # dpg.bind_item_font(dpg.last_item(), font_regular_12)
-                # dpg.add_button(label = "0", pos=[130, 220], width=40, tag="imu_channels_value", small=True)
-                # dpg.bind_item_theme(dpg.last_item(), input_theme)
-                # dpg.bind_item_font(dpg.last_item(), font_regular_16)  
