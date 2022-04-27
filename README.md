@@ -13,13 +13,6 @@ Its basically the same as the Psylink sketch, but it adds the magnetometer readi
 
 ---
 
-### Bugs:
-* Exiting the program sometimes hangs
-  * Just CTRL-C the command line to exit
-  * It's because of async and multiprocessing - I just need to spend some more time tearing things down properly
-
----
-
 ### Built with:
 [Bleak](https://github.com/hbldh/bleak) \
 [DearPyGui](https://github.com/hoffstadt/DearPyGui) \
