@@ -1,6 +1,5 @@
-import asyncio
+import asyncio, math, time, yaml
 from bleak import BleakClient, BleakScanner
-import math, time, yaml
 import dearpygui.dearpygui as dpg
 
 SAMPLE_VALUE_OFFSET = -127
