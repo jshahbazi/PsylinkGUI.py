@@ -2,7 +2,7 @@
 
 GUI for the [Psylink neural interface](https://psylink.me).
 
-Designed to work with macOS, but should work with any other OS.
+Designed to work with macOS, but should work with Windows and Linux.
 
 ---
 
