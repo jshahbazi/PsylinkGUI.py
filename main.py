@@ -261,9 +261,7 @@ class EMGGUI():
 
 
     def stop_collecting_data(self):
-        self.running = False
-        self.x_axis = []
-        self.y_axis = []        
+        self.running = False    
         dpg.configure_item("start_button", show=True)
         dpg.configure_item("stop_button", show=False)
 
