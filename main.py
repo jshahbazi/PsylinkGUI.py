@@ -1,14 +1,8 @@
 import asyncio
-from bleak import BleakClient, BleakError, BleakScanner
+from bleak import BleakClient, BleakScanner
 import math, time, yaml
-
 import dearpygui.dearpygui as dpg
-import multiprocessing
-import multiprocessing.queues as mpq
-from ctypes import c_bool
-import signal
-from collections import deque
-import numpy as np
+
 # BLUETOOTH_ADAPTER = 'hci0'
 # DEFAULT_BLE_ADDRESS = 'A6:B7:D0:AE:C2:76'
 
@@ -29,11 +23,6 @@ LABEL_SEPARATOR = ','
 BATCH_SIZE = 64
 TRAIN_SPLIT = 0.8
 
-
-# last_sample_count = 2048
-# self.actual_channels = self.BLE_decoder.decode_channel_count(self.BLE.read_channels())
-
-
 SAMPLE_VALUE_OFFSET = -127
 # Keep these in sync with arduino code.
 DELAY_PARAM_A = -11.3384217
@@ -50,75 +39,11 @@ EMG_CHANNELS = 8
 SIGNAL_COUNT = EMG_CHANNELS + IMU_CHANNELS
 
 
-class SharedCounter(object):
-    """ A synchronized shared counter.
-    The locking done by multiprocessing.Value ensures that only a single
-    process or thread may read or write the in-memory ctypes object. However,
-    in order to do n += 1, Python performs a read followed by a write, so a
-    second process may read the old value before the new one is written by the
-    first process. The solution is to use a multiprocessing.Lock to guarantee
-    the atomicity of the modifications to Value.
-    This class comes almost entirely from Eli Bendersky's blog:
-    http://eli.thegreenplace.net/2012/01/04/shared-counter-with-pythons-multiprocessing/
-    """
-
-    def __init__(self, n = 0):
-        self.count = multiprocessing.Value('i', n)
-
-    def increment(self, n = 1):
-        """ Increment the counter by n (default = 1) """
-        with self.count.get_lock():
-            self.count.value += n
-
-    @property
-    def value(self):
-        """ Return the value of the counter """
-        return self.count.value
-
-class Queue(mpq.Queue):
-    """ A portable implementation of multiprocessing.Queue.
-    Because of multithreading / multiprocessing semantics, Queue.qsize() may
-    raise the NotImplementedError exception on Unix platforms like Mac OS X
-    where sem_getvalue() is not implemented. This subclass addresses this
-    problem by using a synchronized shared counter (initialized to zero) and
-    increasing / decreasing its value every time the put() and get() methods
-    are called, respectively. This not only prevents NotImplementedError from
-    being raised, but also allows us to implement a reliable version of both
-    qsize() and empty().
-    """
-
-    def __init__(self, *args, **kwargs):
-        ctx = multiprocessing.get_context()        
-        super(Queue, self).__init__(*args, **kwargs, ctx=ctx)
-        self.size = SharedCounter(0)
-
-    def put(self, *args, **kwargs):
-        self.size.increment(1)
-        super(Queue, self).put(*args, **kwargs)
-
-    def get(self, *args, **kwargs):
-        self.size.increment(-1)
-        return super(Queue, self).get(*args, **kwargs)
-
-    def qsize(self):
-        """ Reliable implementation of multiprocessing.Queue.qsize() """
-        return self.size.value
-
-    def empty(self):
-        """ Reliable implementation of multiprocessing.Queue.empty() """
-        return not self.qsize()
-
-    def clear(self):
-        """ Remove all elements from the Queue. """
-        while not self.empty():
-            self.get()
-
 class EMGGUI():
-    def __init__(self, device_config):
-        multiprocessing.set_start_method('spawn')        
-        self.data_queue = Queue()
-        self.running = multiprocessing.Value(c_bool, False)
-        self.shutdown_event = multiprocessing.Event()
+    def __init__(self, device_config):  
+        self.data_queue = asyncio.Queue()
+        self.running = False #multiprocessing.Value(c_bool, False)
+        self.shutdown_event = asyncio.Event()
         self.is_paused = False
         self.window_size = 1000                                      
         self.signal_time = []
@@ -318,25 +243,25 @@ class EMGGUI():
     async def run(self):
         asyncio.create_task(self.collect_emg_data(DEVICE_UUID))           
         while dpg.is_dearpygui_running():
-            await asyncio.sleep(0.01)
-            self.update_plots()
+            await asyncio.sleep(0.001)
+            await self.update_plots()
             dpg.render_dearpygui_frame()
         await asyncio.sleep(0.01)
-        self.running.value = False
+        self.running = False
         self.shutdown_event.set() 
         time.sleep(0.1)      
         dpg.destroy_context()
 
 
     def start_collecting_data(self):
-        self.running.value = True
+        self.running = True
         self.start_time = time.time()        
         dpg.configure_item("start_button", show=False)
         dpg.configure_item("stop_button", show=True)
 
 
     def stop_collecting_data(self):
-        self.running.value = False
+        self.running = False
         self.x_axis = []
         self.y_axis = []        
         dpg.configure_item("start_button", show=True)
@@ -373,9 +298,10 @@ class EMGGUI():
 # bleString[pos++] = min(255, max(1, 128*y+127));
 # bleString[pos++] = min(255, max(1, 128*z+127));;
 
-    def update_plots(self):
-        if self.running.value == True and self.data_queue.qsize() > 0:
-            incoming_data = self.data_queue.get()
+    async def update_plots(self):
+        current_queue_size = self.data_queue.qsize()
+        if self.running == True and current_queue_size > 0:
+            incoming_data = await self.data_queue.get()
             # channels = incoming_data['channels']
             sample_count = incoming_data['sample_count']
 
@@ -488,7 +414,7 @@ class EMGGUI():
                     decoded = decoder.decode_packet(read)
                     if decoded['is_duplicate']:
                         continue # we don't want duplicate data
-                    self.data_queue.put(decoded)
+                    await self.data_queue.put(decoded)
                     # print(decoded)
                     fps += 1
                     bps += len(read)
@@ -504,7 +430,7 @@ class EMGGUI():
 
     def teardown(self):
         try:
-            self.running.value = False
+            self.running = False
             self.shutdown_event.set()
             time.sleep(0.1)
             for task in asyncio.all_tasks():
