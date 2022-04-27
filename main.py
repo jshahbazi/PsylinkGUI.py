@@ -393,8 +393,13 @@ class EMGGUI():
             async with BleakClient(device) as client:
                 read = await client.read_gatt_char(EMG_CHANNEL_COUNT_UUID)
                 emg_channel_count = decoder.decode_emg_channel_count(read)
-                read = await client.read_gatt_char(IMU_CHANNEL_COUNT_UUID)
-                imu_channel_count = decoder.decode_imu_channel_count(read)
+                try:
+                    read = await client.read_gatt_char(IMU_CHANNEL_COUNT_UUID)
+                    imu_channel_count = decoder.decode_imu_channel_count(read)
+                except: # if imu channel count characteristic does not exist, assume count of 6
+                    imu_channel_count = 6
+                    print(f"IMU Channels = {imu_channel_count}")
+
                 if imu_channel_count == 9:
                     self.magnetometer_available = True
                     self.imu_channels = 9
