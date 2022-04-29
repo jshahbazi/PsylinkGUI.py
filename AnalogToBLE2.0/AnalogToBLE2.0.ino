@@ -2,15 +2,14 @@
 // 1. ArduinoBLE
 // 2. Arduino_LSM9DS1
 
+// Flash storage courtesy of https://github.com/petewarden/arduino_nano_ble_write_flash
+
 // Feature flags
 #define SEND_METRICS true
-#define USE_INTERRUPT_TIMER false
 
 #include <ArduinoBLE.h>       // Bluetooth Low Energy
 #include <Arduino_LSM9DS1.h>  // Inertial Measurement Unit
-#if USE_INTERRUPT_TIMER == true
-#include "NRF52_MBED_TimerInterrupt.h"
-#endif
+#include "FlashIAPBlockDevice.h" // Flash Storage
 
 // Configuration
 #define SAMPLE_RATE 500 // samples per second
@@ -43,9 +42,6 @@ const int SAMPLES_PER_NOTIFY = SAMPLE_RATE / BLE_NOTIFY_RATE;
 const int BLE_CHARACTERISTIC_SIZE = METADATA_BYTES + CHANNELS * SAMPLES_PER_NOTIFY;
 const int NO_BUFFER = -1;
 
-#if USE_INTERRUPT_TIMER == true
-NRF52_MBED_Timer samplingTimer(NRF_TIMER_3);
-#endif
 BLEDevice connectedDevice;
 BLEService sensorService("0a3d3fd8-2f1c-46fd-bf46-eaef2fda91e4");
 BLEStringCharacteristic sensorCharacteristic("0a3d3fd8-2f1c-46fd-bf46-eaef2fda91e5", BLERead, BLE_CHARACTERISTIC_SIZE);
@@ -66,6 +62,26 @@ bool bleConnected = false;
 volatile unsigned long minSampleDelay, maxSampleDelay, lastSampleMicroSeconds = 0;
 #endif
 
+// Flash storage prep
+constexpr int kFlashBlockSize = 4096;
+#define ROUND_UP(val, block_size) ((((val) + ((block_size) - 1)) / (block_size)) * (block_size))
+constexpr int kFlashBufferSize = ROUND_UP(64 * 1024, kFlashBlockSize);
+alignas(kFlashBlockSize) const uint8_t flash_buffer[kFlashBufferSize] = {};
+
+struct imuBiasStruct
+{
+    int calibrated;
+  float gyroBiasX;
+  float gyroBiasY;
+  float gryoBiasZ;
+  float accelBiasX;
+  float accelBiasY;
+  float accelBiasZ;
+  float magBiasX;
+  float magBiasY;
+  float magBiasZ;    
+};
+
 void setup() {
   // Serial.begin(115200);
   analogReadResolution(12);
@@ -82,14 +98,6 @@ void setup() {
     digitalWrite(LEDR, LOW); // Turn on red LED
     while (1);
   }
-  #if USE_INTERRUPT_TIMER == true
-  if (!samplingTimer.attachInterruptInterval(SAMPLE_INTERVAL_uS, samplingTimerHandler)) {
-    digitalWrite(LEDR, LOW); // Turn on red LED
-    digitalWrite(LEDG, LOW); // Turn on green LED
-    while (1);
-  }
-  samplingTimer.stopTimer();
-  #endif
   if (!IMU.begin()) {
     digitalWrite(LEDR, LOW); // Turn on red LED
     digitalWrite(LEDG, LOW); // Turn on green LED
@@ -110,19 +118,31 @@ void setup() {
   BLE.setConnectionInterval(BLE_CONNECTION_INTERVAL_MIN, BLE_CONNECTION_INTERVAL_MAX);
   BLE.advertise();
   for (int i = 0; i < BLE_CHARACTERISTIC_SIZE; i++) { bleString[i] = i+1; }
+
+  //Flash storage setup
+  const uint32_t flash_buffer_address = reinterpret_cast<uint32_t>(flash_buffer);
+  static FlashIAPBlockDevice flashBlockDevice(flash_buffer_address, kFlashBufferSize);
+  flashBlockDevice.init();
+  uint8_t* ram_buffer = (uint8_t*)(malloc(kFlashBufferSize));
+  flashBlockDevice.read(ram_buffer, 0, kFlashBufferSize);
+  flashBlockDevice.erase(0, kFlashBufferSize);
+  imuBiasStruct* biasData = reinterpret_cast<imuBiasStruct*>(ram_buffer);
+
+  if (biasData->calibrated) {
+
+  } else {
+
+  }
+  // biasData->gyroBiasX += 2.2;
+  // biasData->gyroBiasY += 3.3;
+  // bd.program(ram_buffer, 0, kFlashBufferSize);
+  // bd.deinit();  
 }
 
 unsigned long nextFrame = 0;
 void loop() {
-  #if USE_INTERRUPT_TIMER == true
-  if (doSampling) {
-  #else
   if (micros() >= nextFrame) {
-  #endif
     readSamples();
-    #if USE_INTERRUPT_TIMER == false
-    nextFrame = micros() + 1000;
-    #endif
   }
   if (sendBuffer != NO_BUFFER) {
     updateSensorCharacteristic();
@@ -134,17 +154,7 @@ void sensorCharacteristicRead(BLEDevice central, BLECharacteristic characteristi
   updateSensorCharacteristic();
 }
 
-#if USE_INTERRUPT_TIMER == true
-void samplingTimerHandler() {
-  doSampling = true;
-}
-#endif
-
 void readSamples() {
-  #if USE_INTERRUPT_TIMER == false
-  doSampling = false;
-  #endif
-
   for (int channel = 0; channel < CHANNELS; channel++)
     samples[currentBuffer][channel][currentSample] = analogRead(channel);
   currentSample++;
