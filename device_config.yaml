@@ -5,8 +5,8 @@ device:
     - service_uuid: 0a3d3fd8-2f1c-46fd-bf46-eaef2fda91e4
     - sensor_uuid: 0a3d3fd8-2f1c-46fd-bf46-eaef2fda91e5
     - emg_channel_count_uuid: 0a3d3fd8-2f1c-46fd-bf46-eaef2fda91e6
-    - imu_channel_count_uuid: 0a3d3fd8-2f1c-46fd-bf46-eaef2fda91e7
+    - axes_uuid: 0a3d3fd8-2f1c-46fd-bf46-eaef2fda91a1
+    - imu_uuid: 0a3d3fd8-2f1c-46fd-bf46-eaef2fda91a2
     - emg_channels: 8
-    - imu_channels: 9
     - mac_address: A6:B7:D0:AE:C2:76
 
