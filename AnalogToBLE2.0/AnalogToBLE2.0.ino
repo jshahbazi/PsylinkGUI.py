@@ -24,9 +24,9 @@
 #define BUFFERS 2 // multiple buffers help with concurrency issues, if needed
 #define METADATA_BYTES 8
 // Metadata format:
-// Bytes   |1   |2                            |3-5             |6-8                 |9-11               |12-20
-// Bits    |all |1-4           |5-8           |all             |all                 |all                |all
-// Content |Tick|MinSampleDelay|MaxSampleDelay|gyroscope(x,y,z)|Accelerometer(x,y,z)|Magnetometer(x,y,z)|yaw,pitch,roll
+// Bytes   |1   |2                            |3-5             |6-8                 
+// Bits    |all |1-4           |5-8           |all             |all                 
+// Content |Tick|MinSampleDelay|MaxSampleDelay|gyroscope(x,y,z)|Accelerometer(x,y,z)
 // NOTE: MinSampleDelay and MaxSampleDelay will be 0xF when SEND_METRICS is false.
 
 // The DELAY_PARAMs are from a logarithmic regression (f(x)=A+B*log(x)) with
@@ -51,8 +51,6 @@ BLEDevice connectedDevice;
 BLEService sensorService("0a3d3fd8-2f1c-46fd-bf46-eaef2fda91e4");
 BLEStringCharacteristic sensorCharacteristic("0a3d3fd8-2f1c-46fd-bf46-eaef2fda91e5", BLERead, BLE_CHARACTERISTIC_SIZE);
 BLEIntCharacteristic channelCountCharacteristic("0a3d3fd8-2f1c-46fd-bf46-eaef2fda91e6", BLERead);
-
-float yaw = 0.0, pitch = 0.0, roll = 0.0;
 struct principalAxes {
   float yaw;
   float pitch;
@@ -60,7 +58,6 @@ struct principalAxes {
 };
 struct principalAxes dataPacketAxes;
 BLECharacteristic axesCharacteristic("0a3d3fd8-2f1c-46fd-bf46-eaef2fda91a1", BLERead | BLENotify, sizeof(dataPacketAxes));
-
 struct imuData {
   float ax;
   float ay;
@@ -72,9 +69,10 @@ struct imuData {
   float my;
   float mz;
 };
-
 struct imuData dataPacketIMU;
 BLECharacteristic imuCharacteristic("0a3d3fd8-2f1c-46fd-bf46-eaef2fda91a2", BLERead | BLENotify, sizeof(dataPacketIMU));
+
+float yaw = 0.0, pitch = 0.0, roll = 0.0;
 
 volatile bool doSampling = true;
 volatile int sendBuffer = NO_BUFFER;
@@ -101,7 +99,7 @@ alignas(kFlashBlockSize) const uint8_t flash_buffer[kFlashBufferSize] = {};
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////
 ////////////////////////////  IMU Code
-////////////////////////////
+////////////////////////////    almost entirely taken from https://github.com/kriswiner/LSM9DS1
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -786,9 +784,6 @@ void setup() {
     bleString[i] = i + 1;
   }
 
-
-  //  Serial.println("Initializing flash storage...");
-
   //Flash storage initialization
   const uint32_t flash_buffer_address = reinterpret_cast<uint32_t>(flash_buffer);
   static FlashIAPBlockDevice flashBlockDevice(flash_buffer_address, kFlashBufferSize);
@@ -798,8 +793,6 @@ void setup() {
   flashBlockDevice.erase(0, kFlashBufferSize);
 
   biasData = reinterpret_cast<bias_values*>(ram_buffer);
-
-  //  Serial.println(biasData->accelBiasX);
 
   Wire1.begin();
   if (biasData->calibrated) {
@@ -1015,7 +1008,8 @@ void updateSensorCharacteristic() {
   readMagData(magCount);  // Read the x/y/z adc values
   // Calculate the magnetometer values in milliGauss
   // Include factory calibration per data sheet and user environmental corrections
-  mx = (float)magCount[0] * mRes; // - biasData->magBiasX; // TODO maybe include - check to see if bias is in non-volatile register
+  // Magnetometer bias is written to a register
+  mx = (float)magCount[0] * mRes; // - biasData->magBiasX; // TODO check to see if bias is in non-volatile register. If not, include.
   my = (float)magCount[1] * mRes; // - biasData->magBiasY;
   mz = (float)magCount[2] * mRes; // - biasData->magBiasZ;
 
@@ -1028,7 +1022,6 @@ void updateSensorCharacteristic() {
   dataPacketIMU.mx = mx;
   dataPacketIMU.my = my;
   dataPacketIMU.mz = mz;
-
   imuCharacteristic.writeValue((byte *) &dataPacketIMU, sizeof(dataPacketIMU));
 
 
@@ -1083,17 +1076,11 @@ void updateSensorCharacteristic() {
     for (int channel = 0; channel < CHANNELS; channel++) {
       // Avoid writing 0x00 since that denotes the end of the string
       currentChar = map(samples[sendBuffer][channel][sample], 1040, 3080, 1, 255);
-      // Serial.print(samples[sendBuffer][channel][sample]);
-      // Serial.print(' ');
       bleString[pos++] = max(1, min(currentChar, 255));
     }
-    // Serial.print('\t');
   }
-  //  Serial.print("pos: ");
-  //  Serial.println(pos);
   bleString[pos] = 0;  // End the string with 0x00
   sensorCharacteristic.writeValue(bleString);
-  //  Serial.println(bleString);
 
   // Reset values
   sendBuffer = NO_BUFFER;
