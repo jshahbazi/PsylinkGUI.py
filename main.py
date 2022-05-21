@@ -239,9 +239,9 @@ class EMGGUI():
                         view_matrix = dpg.create_fps_matrix([0, 0, 50], 0.0, 0.0)
                         proj_matrix = dpg.create_perspective_matrix(math.pi*45.0/180.0, 500/500, 0.1, 100)
                         cube_rot = dpg.get_item_user_data("_demo_3dNode1")
-                        cube_rot[0] = -self.pitch #cube_rot[0] + 1.0
-                        cube_rot[1] = -self.yaw #cube_rot[1] + 1.0
-                        cube_rot[2] = -self.roll #cube_rot[2] + 1.0
+                        cube_rot[0] = -self.pitch
+                        cube_rot[1] = -self.yaw
+                        cube_rot[2] = -self.roll
                         model_matrix = dpg.create_rotation_matrix(math.pi*cube_rot[0]/180.0 , [1, 0, 0])*\
                                                 dpg.create_rotation_matrix(math.pi*cube_rot[1]/180.0 , [0, 1, 0])*\
                                                 dpg.create_rotation_matrix(math.pi*cube_rot[2]/180.0 , [0, 0, 1])
@@ -402,8 +402,8 @@ class EMGGUI():
                 dpg.set_value("imu_my", [self.imu_time_axis, self.imu_mag_y])
                 dpg.set_value("imu_mz", [self.imu_time_axis, self.imu_mag_z])
                 dpg.fit_axis_data("x_axis_mag")
-                # dpg.fit_axis_data("y_axis_mag")
-                dpg.set_axis_limits("y_axis_mag", -0.2,0.6)
+                dpg.fit_axis_data("y_axis_mag")
+                # dpg.set_axis_limits("y_axis_mag", -0.6,0.6)
 
 
 #define AA 0.97         // complementary filter constant
